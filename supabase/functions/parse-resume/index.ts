@@ -1,9 +1,6 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-// Import PDF parsing library - browser-compatible version without canvas dependency
-import { PDFDocument } from "https://esm.sh/pdf-lib@1.17.1?target=deno";
-
 // Import DOCX parsing library
 import mammoth from "https://esm.sh/mammoth@1.6.0";
 
@@ -31,7 +28,7 @@ serve(async (req) => {
   try {
     const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
     if (!openAIApiKey) {
-      throw new Error('OpenAI API key not configured');
+      throw new Error('OpenAI API key not configured. Please check Edge Function secrets.');
     }
 
     const formData = await req.formData();
@@ -43,14 +40,13 @@ serve(async (req) => {
 
     // Validate file type
     const allowedTypes = [
-      'application/pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'application/msword',
       'text/plain'
     ];
     
     if (!allowedTypes.includes(file.type)) {
-      throw new Error('Unsupported file type. Please upload PDF, DOCX, DOC, or TXT files.');
+      throw new Error('Unsupported file type. Please upload DOCX, DOC, or TXT files. PDF support is temporarily unavailable.');
     }
 
     // Validate file size (10MB limit)
@@ -66,27 +62,7 @@ serve(async (req) => {
     
     if (file.type === 'text/plain') {
       textContent = await file.text();
-    } else if (file.type === 'application/pdf') {
-      // Extract text from PDF using pdf-lib (browser-compatible, no canvas dependency)
-      try {
-        console.log('Extracting text from PDF...');
-        const arrayBuffer = await file.arrayBuffer();
-        
-        const pdfDoc = await PDFDocument.load(arrayBuffer);
-        const pageCount = pdfDoc.getPageCount();
-        console.log(`PDF loaded successfully with ${pageCount} pages`);
-
-        let fullText = '';
-        
-        // Note: pdf-lib doesn't have built-in text extraction
-        // For now, we'll inform users to use TXT/DOCX for better results
-        throw new Error('PDF text extraction is temporarily unavailable. Please convert your PDF to TXT or DOCX format for accurate parsing. You can use online converters or save your PDF as text.');
-        
-      } catch (e) {
-        console.error('PDF text extraction failed:', e);
-        const errorMsg = e instanceof Error ? e.message : 'Unknown PDF parsing error';
-        throw new Error(`PDF parsing failed: ${errorMsg}`);
-      }
+      console.log(`Successfully extracted ${textContent.length} characters from TXT`);
     } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.type === 'application/msword') {
       // Extract text from DOCX/DOC using mammoth
       try {
@@ -103,19 +79,17 @@ serve(async (req) => {
         }
         
         if (!textContent || textContent.length < 10) {
-          throw new Error(`${fileType} appears to be empty or unreadable. Please try a TXT format or ensure the document contains text.`);
+          throw new Error(`${fileType} appears to be empty or unreadable. Please ensure the document contains text.`);
         }
       } catch (e) {
         console.error('Document text extraction failed:', e);
         const errorMsg = e instanceof Error ? e.message : 'Unknown document parsing error';
-        throw new Error(`Document parsing failed: ${errorMsg}. Try converting to TXT format.`);
+        throw new Error(`Document parsing failed: ${errorMsg}`);
       }
-    } else {
-      throw new Error(`Unsupported file type: ${file.type}. Please upload a PDF, DOCX, DOC, or TXT file.`);
     }
 
     if (!textContent || textContent.trim().length === 0) {
-      throw new Error('Could not extract any text from the uploaded file. The file may be empty, corrupted, or image-based.');
+      throw new Error('Could not extract any text from the uploaded file. The file may be empty or corrupted.');
     }
 
     if (textContent.length < 20) {
@@ -125,6 +99,7 @@ serve(async (req) => {
     console.log(`Total extracted text length: ${textContent.length} characters`);
 
     // Parse the resume content with OpenAI
+    console.log('Calling OpenAI API to parse resume...');
     const parseResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -132,7 +107,7 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'o4-mini-2025-04-16',
+        model: 'gpt-4.1-2025-04-14',
         messages: [
           {
             role: 'system',
@@ -160,27 +135,33 @@ Rules:
           },
           {
             role: 'user',
-            content: `Parse this resume and extract candidate information:\n\n${textContent}`
+            content: `Parse this resume and extract candidate information:\n\n${textContent.substring(0, 4000)}`
           }
         ],
-        max_completion_tokens: 800
+        max_tokens: 1000,
+        temperature: 0.3
       }),
     });
 
+    console.log(`OpenAI API response status: ${parseResponse.status} ${parseResponse.statusText}`);
+
     if (!parseResponse.ok) {
-      const errorData = await parseResponse.json().catch(() => ({}));
-      console.error('OpenAI API error:', errorData);
-      throw new Error('Failed to parse resume content');
+      const errorText = await parseResponse.text();
+      console.error('OpenAI API error response:', errorText);
+      throw new Error(`OpenAI API error (${parseResponse.status}): ${errorText}`);
     }
 
     const parseData = await parseResponse.json();
-    const parsedContent = parseData.choices[0]?.message?.content;
+    console.log('OpenAI API response structure:', JSON.stringify(parseData, null, 2));
+    
+    const parsedContent = parseData.choices?.[0]?.message?.content;
 
     if (!parsedContent) {
-      throw new Error('No content returned from OpenAI');
+      console.error('No content in OpenAI response. Full response:', JSON.stringify(parseData, null, 2));
+      throw new Error(`No content returned from OpenAI. Response structure: ${JSON.stringify(parseData)}`);
     }
 
-    console.log('OpenAI response:', parsedContent);
+    console.log('OpenAI response content:', parsedContent);
 
     // Parse the JSON response
     let candidateData: ParsedCandidate;
