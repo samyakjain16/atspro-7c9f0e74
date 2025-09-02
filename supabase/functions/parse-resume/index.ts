@@ -1,6 +1,12 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
+// Import PDF parsing library from CDN
+import { getDocument } from "https://esm.sh/pdfjs-serverless@1.0.196";
+
+// Import DOCX parsing library from CDN  
+import mammoth from "https://esm.sh/mammoth@1.6.0";
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -35,13 +41,16 @@ serve(async (req) => {
       throw new Error('No file provided');
     }
 
-    // Validate file type - for now, only support TXT files reliably
+    // Validate file type
     const allowedTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/msword',
       'text/plain'
     ];
     
     if (!allowedTypes.includes(file.type)) {
-      throw new Error('Currently only TXT files are supported. Please copy your resume content and save it as a .txt file, or paste the text directly into the manual form.');
+      throw new Error('Unsupported file type. Please upload PDF, DOCX, DOC, or TXT files.');
     }
 
     // Validate file size (10MB limit)
@@ -57,14 +66,57 @@ serve(async (req) => {
     
     if (file.type === 'text/plain') {
       textContent = await file.text();
-    } else {
-      // For PDF, DOCX, and DOC files, attempt basic text extraction
-      // Note: This is a simplified approach - for production use, consider specialized libraries
+    } else if (file.type === 'application/pdf') {
+      // Extract text from PDF using pdfjs-serverless
       try {
-        textContent = await file.text();
+        console.log('Extracting text from PDF...');
+        const arrayBuffer = await file.arrayBuffer();
+        const pdfDoc = await getDocument(new Uint8Array(arrayBuffer)).promise;
+        
+        let fullText = '';
+        for (let i = 1; i <= pdfDoc.numPages; i++) {
+          const page = await pdfDoc.getPage(i);
+          const textContent = await page.getTextContent();
+          const pageText = textContent.items
+            .filter((item: any) => item.str)
+            .map((item: any) => item.str)
+            .join(' ');
+          fullText += pageText + '\n';
+        }
+        
+        textContent = fullText.trim();
+        console.log(`Successfully extracted ${textContent.length} characters from PDF`);
       } catch (e) {
-        // If direct text extraction fails, inform the user
-        throw new Error(`Cannot extract text from ${file.type} files directly. Please convert to TXT format or copy-paste the content.`);
+        console.error('PDF text extraction failed:', e);
+        throw new Error('Failed to extract text from PDF. Please ensure the file is not corrupted or password-protected.');
+      }
+    } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      // Extract text from DOCX using mammoth
+      try {
+        console.log('Extracting text from DOCX...');
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        textContent = result.value.trim();
+        console.log(`Successfully extracted ${textContent.length} characters from DOCX`);
+        
+        if (result.messages.length > 0) {
+          console.warn('DOCX extraction warnings:', result.messages);
+        }
+      } catch (e) {
+        console.error('DOCX text extraction failed:', e);
+        throw new Error('Failed to extract text from DOCX. Please ensure the file is not corrupted or password-protected.');
+      }
+    } else if (file.type === 'application/msword') {
+      // For older DOC files, attempt basic extraction (limited support)
+      try {
+        console.log('Attempting to extract text from DOC file...');
+        textContent = await file.text();
+        if (!textContent.trim()) {
+          throw new Error('No readable text found');
+        }
+      } catch (e) {
+        console.error('DOC text extraction failed:', e);
+        throw new Error('Failed to extract text from DOC file. Please convert to DOCX or PDF format for better compatibility.');
       }
     }
 
