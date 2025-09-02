@@ -1,11 +1,11 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-// Import PDF parsing library from CDN
-import { getDocument } from "https://esm.sh/pdfjs-dist@4.7.76/legacy/build/pdf.mjs";
+// Import PDF parsing library from CDN (browser-friendly legacy ESM build)
+import * as pdfjsLib from "https://esm.sh/pdfjs-dist@4.7.76/legacy/build/pdf.mjs";
 
-// Import DOCX parsing library from CDN  
-import mammoth from "https://esm.sh/mammoth@1.6.0/mammoth.browser.js";
+// Import DOCX parsing library from CDN (browser bundle, rebundled as ESM)
+import mammoth from "https://esm.sh/mammoth@1.6.0/mammoth.browser.js?bundle";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -67,23 +67,36 @@ serve(async (req) => {
     if (file.type === 'text/plain') {
       textContent = await file.text();
     } else if (file.type === 'application/pdf') {
-      // Extract text from PDF using pdfjs-serverless
+      // Extract text from PDF using pdfjs-dist (no worker)
       try {
         console.log('Extracting text from PDF...');
         const arrayBuffer = await file.arrayBuffer();
-        const pdfDoc = await getDocument(new Uint8Array(arrayBuffer)).promise;
-        
+        const uint8 = new Uint8Array(arrayBuffer);
+
+        // Disable worker usage in Edge Functions environment
+        // @ts-ignore - pdfjs global worker options
+        (pdfjsLib as any).GlobalWorkerOptions.workerSrc = undefined;
+
+        const loadingTask = (pdfjsLib as any).getDocument({
+          data: uint8,
+          useWorkerFetch: false,
+          isEvalSupported: false,
+          disableFontFace: true,
+        });
+
+        const pdfDoc = await loadingTask.promise;
+
         let fullText = '';
         for (let i = 1; i <= pdfDoc.numPages; i++) {
           const page = await pdfDoc.getPage(i);
-          const textContent = await page.getTextContent();
-          const pageText = textContent.items
-            .filter((item: any) => item.str)
-            .map((item: any) => item.str)
+          const txt = await page.getTextContent();
+          const pageText = (txt.items as any[])
+            .map((item: any) => item?.str)
+            .filter(Boolean)
             .join(' ');
           fullText += pageText + '\n';
         }
-        
+
         textContent = fullText.trim();
         console.log(`Successfully extracted ${textContent.length} characters from PDF`);
       } catch (e) {
@@ -95,11 +108,11 @@ serve(async (req) => {
       try {
         console.log('Extracting text from DOCX...');
         const arrayBuffer = await file.arrayBuffer();
-        const result = await mammoth.extractRawText({ arrayBuffer });
-        textContent = result.value.trim();
+        const result = await (mammoth as any).extractRawText({ arrayBuffer });
+        textContent = (result.value || '').trim();
         console.log(`Successfully extracted ${textContent.length} characters from DOCX`);
         
-        if (result.messages.length > 0) {
+        if (result.messages && result.messages.length > 0) {
           console.warn('DOCX extraction warnings:', result.messages);
         }
       } catch (e) {
@@ -170,7 +183,7 @@ Rules:
     });
 
     if (!parseResponse.ok) {
-      const errorData = await parseResponse.json();
+      const errorData = await parseResponse.json().catch(() => ({}));
       console.error('OpenAI API error:', errorData);
       throw new Error('Failed to parse resume content');
     }
@@ -224,7 +237,7 @@ Rules:
     console.error('Error in parse-resume function:', error);
     return new Response(JSON.stringify({ 
       success: false,
-      error: error.message 
+      error: (error as any)?.message || 'Unknown error'
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
