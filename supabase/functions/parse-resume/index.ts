@@ -2,10 +2,10 @@ import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 // Import PDF parsing library from CDN
-import { getDocument } from "https://esm.sh/pdfjs-serverless@1.0.196";
+import { getDocument } from "https://esm.sh/pdfjs-dist@4.7.76/legacy/build/pdf.mjs";
 
 // Import DOCX parsing library from CDN  
-import mammoth from "https://esm.sh/mammoth@1.6.0";
+import mammoth from "https://esm.sh/mammoth@1.6.0/mammoth.browser.js";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
