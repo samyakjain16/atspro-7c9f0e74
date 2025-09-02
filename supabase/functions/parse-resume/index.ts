@@ -1,5 +1,6 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { extractText } from "jsr:@pdf/pdftext";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -61,60 +62,18 @@ serve(async (req) => {
     if (file.type === 'text/plain') {
       textContent = await file.text();
     } else if (file.type === 'application/pdf') {
-      // For PDF files, we'll use a simple approach
-      // In a production environment, you might want to use a PDF parsing library
       const arrayBuffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
-      
-      // Convert to base64 for OpenAI vision API
-      let binary = '';
-      const chunkSize = 0x8000;
-      for (let i = 0; i < uint8Array.length; i += chunkSize) {
-        const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length));
-        binary += String.fromCharCode.apply(null, Array.from(chunk));
-      }
-      const base64 = btoa(binary);
-      
-      // Use OpenAI's vision model to extract text from PDF
-      const visionResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${openAIApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'text',
-                  text: 'Please extract all text content from this resume/document. Provide the complete text as it appears in the document.'
-                },
-                {
-                  type: 'image_url',
-                  image_url: {
-                    url: `data:${file.type};base64,${base64}`
-                  }
-                }
-              ]
-            }
-          ],
-          max_tokens: 4000
-        }),
-      });
-
-      if (!visionResponse.ok) {
-        const errorData = await visionResponse.json();
-        console.error('Vision API error:', errorData);
+      try {
+        const result: any = await extractText(uint8Array);
+        // Some versions return { text }, others return string
+        textContent = typeof result === 'string' ? result : (result?.text ?? '');
+      } catch (e) {
+        console.error('PDF text extraction failed:', e);
         throw new Error('Failed to extract text from PDF');
       }
-
-      const visionData = await visionResponse.json();
-      textContent = visionData.choices[0]?.message?.content || '';
     } else {
-      // For DOCX and DOC files, extract as text (simplified approach)
+      // For DOCX and DOC files, attempt naive text extraction (may be limited)
       textContent = await file.text();
     }
 
@@ -132,7 +91,7 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-5-2025-08-07',
+        model: 'o4-mini-2025-04-16',
         messages: [
           {
             role: 'system',
@@ -163,7 +122,7 @@ Rules:
             content: `Parse this resume and extract candidate information:\n\n${textContent}`
           }
         ],
-        max_completion_tokens: 1000
+        max_completion_tokens: 800
       }),
     });
 

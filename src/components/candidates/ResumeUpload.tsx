@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
-import { DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -133,6 +133,9 @@ export const ResumeUpload = ({ onCancel, onSaveCandidate, isLoading }: ResumeUpl
     <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
       <DialogHeader>
         <DialogTitle>Parse Resume with AI</DialogTitle>
+        <DialogDescription>
+          Upload a PDF, DOCX, DOC or TXT file to extract candidate details automatically.
+        </DialogDescription>
       </DialogHeader>
 
       <div className="space-y-6">
