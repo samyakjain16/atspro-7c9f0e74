@@ -1,20 +1,31 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Eye, EyeOff, Mail, Lock, User, ArrowRight } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 
 const Auth = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     email: "",
     password: "",
     fullName: "",
     confirmPassword: ""
   });
+  const { signIn, signUp, user } = useAuth();
+  const navigate = useNavigate();
+
+  // Redirect if already authenticated
+  if (user) {
+    navigate('/', { replace: true });
+    return null;
+  }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -23,10 +34,33 @@ const Auth = () => {
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Implement authentication logic with Supabase
-    console.log("Form submitted:", formData);
+    setLoading(true);
+
+    try {
+      if (isLogin) {
+        const { error } = await signIn(formData.email, formData.password);
+        if (!error) {
+          navigate('/', { replace: true });
+        }
+      } else {
+        // Validate passwords match
+        if (formData.password !== formData.confirmPassword) {
+          // This would be handled by a toast in the auth hook
+          return;
+        }
+        
+        const { error } = await signUp(formData.email, formData.password, formData.fullName);
+        if (!error) {
+          // User will get a toast message about email verification
+        }
+      }
+    } catch (error) {
+      console.error('Auth error:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -149,9 +183,10 @@ const Auth = () => {
 
               <Button 
                 type="submit" 
-                className="w-full bg-gradient-neon hover:shadow-neon-md transition-all duration-300"
+                disabled={loading}
+                className="w-full bg-gradient-neon hover:shadow-neon-md transition-all duration-300 disabled:opacity-50"
               >
-                {isLogin ? "Sign In" : "Create Account"}
+                {loading ? "Please wait..." : (isLogin ? "Sign In" : "Create Account")}
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </form>
