@@ -95,7 +95,6 @@ export const ResumeUpload = ({ onCancel, onSaveCandidate, isLoading }: ResumeUpl
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      'application/pdf': ['.pdf'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
       'application/msword': ['.doc'],
       'text/plain': ['.txt']
@@ -134,7 +133,11 @@ export const ResumeUpload = ({ onCancel, onSaveCandidate, isLoading }: ResumeUpl
       <DialogHeader>
         <DialogTitle>Parse Resume with AI</DialogTitle>
         <DialogDescription>
-          Upload a PDF, DOCX, DOC or TXT file to extract candidate details automatically using AI.
+          Upload a DOCX, DOC or TXT file to extract candidate details automatically using AI.
+          <br />
+          <span className="text-sm text-muted-foreground">
+            Note: PDF support is temporarily unavailable. Please convert PDFs to TXT or DOCX format.
+          </span>
         </DialogDescription>
       </DialogHeader>
 
@@ -157,13 +160,12 @@ export const ResumeUpload = ({ onCancel, onSaveCandidate, isLoading }: ResumeUpl
               Drag and drop your resume, or click to browse
             </p>
             <div className="flex flex-wrap justify-center gap-2 mb-4">
-              <Badge variant="secondary">PDF</Badge>
               <Badge variant="secondary">DOCX</Badge>
               <Badge variant="secondary">DOC</Badge>
               <Badge variant="secondary">TXT</Badge>
             </div>
             <p className="text-xs text-muted-foreground">
-              Maximum file size: 10MB
+              Maximum file size: 10MB • PDF support coming soon
             </p>
           </div>
         )}

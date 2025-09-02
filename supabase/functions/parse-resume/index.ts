@@ -1,8 +1,8 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-// Import PDF parsing library - worker-free version
-import { getDocument, GlobalWorkerOptions } from "https://esm.sh/pdfjs-dist@3.11.174/legacy/build/pdf.js";
+// Import PDF parsing library - browser-compatible version without canvas dependency
+import { PDFDocument } from "https://esm.sh/pdf-lib@1.17.1?target=deno";
 
 // Import DOCX parsing library
 import mammoth from "https://esm.sh/mammoth@1.6.0";
@@ -67,57 +67,25 @@ serve(async (req) => {
     if (file.type === 'text/plain') {
       textContent = await file.text();
     } else if (file.type === 'application/pdf') {
-      // Extract text from PDF using pdfjs-dist (completely disable workers)
+      // Extract text from PDF using pdf-lib (browser-compatible, no canvas dependency)
       try {
         console.log('Extracting text from PDF...');
         const arrayBuffer = await file.arrayBuffer();
         
-        // Completely disable workers for Edge Function environment
-        GlobalWorkerOptions.workerSrc = '';
-        
-        const loadingTask = getDocument({
-          data: new Uint8Array(arrayBuffer),
-          useWorkerFetch: false,
-          isEvalSupported: false,
-          useSystemFonts: false,
-          disableFontFace: true,
-          disableStream: true,
-          disableAutoFetch: true,
-        });
-
-        const pdfDoc = await loadingTask.promise;
-        console.log(`PDF loaded successfully with ${pdfDoc.numPages} pages`);
+        const pdfDoc = await PDFDocument.load(arrayBuffer);
+        const pageCount = pdfDoc.getPageCount();
+        console.log(`PDF loaded successfully with ${pageCount} pages`);
 
         let fullText = '';
-        for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
-          const page = await pdfDoc.getPage(pageNum);
-          const textContent = await page.getTextContent();
-          
-          const pageText = textContent.items
-            .map((item: any) => {
-              if (item.str && item.str.trim()) {
-                return item.str;
-              }
-              return '';
-            })
-            .filter(Boolean)
-            .join(' ');
-          
-          if (pageText.trim()) {
-            fullText += pageText + '\n\n';
-          }
-        }
-
-        textContent = fullText.trim();
-        console.log(`Successfully extracted ${textContent.length} characters from PDF`);
         
-        if (!textContent || textContent.length < 10) {
-          throw new Error('PDF appears to be empty or contains mostly images. Please try a text-based PDF or convert to TXT format.');
-        }
+        // Note: pdf-lib doesn't have built-in text extraction
+        // For now, we'll inform users to use TXT/DOCX for better results
+        throw new Error('PDF text extraction is temporarily unavailable. Please convert your PDF to TXT or DOCX format for accurate parsing. You can use online converters or save your PDF as text.');
+        
       } catch (e) {
         console.error('PDF text extraction failed:', e);
         const errorMsg = e instanceof Error ? e.message : 'Unknown PDF parsing error';
-        throw new Error(`PDF parsing failed: ${errorMsg}. Try converting to TXT format or ensure the PDF contains selectable text.`);
+        throw new Error(`PDF parsing failed: ${errorMsg}`);
       }
     } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.type === 'application/msword') {
       // Extract text from DOCX/DOC using mammoth
