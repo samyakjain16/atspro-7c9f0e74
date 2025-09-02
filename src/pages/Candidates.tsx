@@ -2,14 +2,16 @@ import { useState, useMemo } from "react";
 import Header from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Plus, Users } from "lucide-react";
+import { Plus, Users, Upload } from "lucide-react";
 import { useCandidates, Candidate, CandidateFormData } from "@/hooks/useCandidates";
 import { CandidateCard } from "@/components/candidates/CandidateCard";
 import { CandidateForm } from "@/components/candidates/CandidateForm";
 import { CandidateFilters } from "@/components/candidates/CandidateFilters";
+import { ResumeUpload } from "@/components/candidates/ResumeUpload";
 
 const Candidates = () => {
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isResumeUploadOpen, setIsResumeUploadOpen] = useState(false);
   const [editingCandidate, setEditingCandidate] = useState<Candidate | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<Candidate['status'] | 'all'>('all');
@@ -56,6 +58,10 @@ const Candidates = () => {
     setIsFormOpen(true);
   };
 
+  const handleResumeUpload = () => {
+    setIsResumeUploadOpen(true);
+  };
+
   const handleEditCandidate = (candidate: Candidate) => {
     setEditingCandidate(candidate);
     setIsFormOpen(true);
@@ -71,9 +77,18 @@ const Candidates = () => {
     setEditingCandidate(null);
   };
 
+  const handleResumeFormSubmit = (data: CandidateFormData) => {
+    createCandidate(data);
+    setIsResumeUploadOpen(false);
+  };
+
   const handleFormCancel = () => {
     setIsFormOpen(false);
     setEditingCandidate(null);
+  };
+
+  const handleResumeUploadCancel = () => {
+    setIsResumeUploadOpen(false);
   };
 
   const handleStatusChange = (candidateId: string, status: Candidate['status']) => {
@@ -120,10 +135,20 @@ const Candidates = () => {
               Track and manage your candidate pipeline
             </p>
           </div>
-          <Button onClick={handleCreateCandidate} className="bg-gradient-neon">
-            <Plus className="w-4 h-4 mr-2" />
-            Add Candidate
-          </Button>
+          <div className="flex gap-3">
+            <Button 
+              onClick={handleResumeUpload} 
+              variant="outline" 
+              className="hover:shadow-neon-sm transition-shadow"
+            >
+              <Upload className="w-4 h-4 mr-2" />
+              Parse Resume
+            </Button>
+            <Button onClick={handleCreateCandidate} className="bg-gradient-neon">
+              <Plus className="w-4 h-4 mr-2" />
+              Add Candidate
+            </Button>
+          </div>
         </div>
 
         <div className="mb-6">
@@ -157,10 +182,16 @@ const Candidates = () => {
               }
             </p>
             {candidates.length === 0 && (
-              <Button onClick={handleCreateCandidate} className="bg-gradient-neon">
-                <Plus className="w-4 h-4 mr-2" />
-                Add Your First Candidate
-              </Button>
+              <div className="flex gap-4">
+                <Button onClick={handleCreateCandidate} className="bg-gradient-neon">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Your First Candidate
+                </Button>
+                <Button onClick={handleResumeUpload} variant="outline" className="hover:shadow-neon-sm">
+                  <Upload className="w-4 h-4 mr-2" />
+                  Parse Resume
+                </Button>
+              </div>
             )}
           </div>
         ) : (
@@ -183,6 +214,14 @@ const Candidates = () => {
             onSubmit={handleFormSubmit}
             onCancel={handleFormCancel}
             isLoading={isCreating || isUpdating}
+          />
+        </Dialog>
+
+        <Dialog open={isResumeUploadOpen} onOpenChange={setIsResumeUploadOpen}>
+          <ResumeUpload
+            onCancel={handleResumeUploadCancel}
+            onSaveCandidate={handleResumeFormSubmit}
+            isLoading={isCreating}
           />
         </Dialog>
       </main>
