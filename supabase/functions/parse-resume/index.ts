@@ -1,11 +1,11 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-// Import PDF parsing library from CDN (browser-friendly legacy ESM build)
-import * as pdfjsLib from "https://esm.sh/pdfjs-dist@4.7.76/legacy/build/pdf.mjs";
+// Import PDF parsing library - worker-free version
+import { getDocument, GlobalWorkerOptions } from "https://esm.sh/pdfjs-dist@3.11.174/legacy/build/pdf.js";
 
-// Import DOCX parsing library from CDN (browser bundle, rebundled as ESM)
-import mammoth from "https://esm.sh/mammoth@1.6.0/mammoth.browser.js?bundle";
+// Import DOCX parsing library
+import mammoth from "https://esm.sh/mammoth@1.6.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -67,77 +67,94 @@ serve(async (req) => {
     if (file.type === 'text/plain') {
       textContent = await file.text();
     } else if (file.type === 'application/pdf') {
-      // Extract text from PDF using pdfjs-dist (no worker)
+      // Extract text from PDF using pdfjs-dist (completely disable workers)
       try {
         console.log('Extracting text from PDF...');
         const arrayBuffer = await file.arrayBuffer();
-        const uint8 = new Uint8Array(arrayBuffer);
-
-        // Disable worker usage in Edge Functions environment
-        // @ts-ignore - pdfjs global worker options
-        (pdfjsLib as any).GlobalWorkerOptions.workerSrc = undefined;
-
-        const loadingTask = (pdfjsLib as any).getDocument({
-          data: uint8,
+        
+        // Completely disable workers for Edge Function environment
+        GlobalWorkerOptions.workerSrc = '';
+        
+        const loadingTask = getDocument({
+          data: new Uint8Array(arrayBuffer),
           useWorkerFetch: false,
           isEvalSupported: false,
+          useSystemFonts: false,
           disableFontFace: true,
+          disableStream: true,
+          disableAutoFetch: true,
         });
 
         const pdfDoc = await loadingTask.promise;
+        console.log(`PDF loaded successfully with ${pdfDoc.numPages} pages`);
 
         let fullText = '';
-        for (let i = 1; i <= pdfDoc.numPages; i++) {
-          const page = await pdfDoc.getPage(i);
-          const txt = await page.getTextContent();
-          const pageText = (txt.items as any[])
-            .map((item: any) => item?.str)
+        for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+          const page = await pdfDoc.getPage(pageNum);
+          const textContent = await page.getTextContent();
+          
+          const pageText = textContent.items
+            .map((item: any) => {
+              if (item.str && item.str.trim()) {
+                return item.str;
+              }
+              return '';
+            })
             .filter(Boolean)
             .join(' ');
-          fullText += pageText + '\n';
+          
+          if (pageText.trim()) {
+            fullText += pageText + '\n\n';
+          }
         }
 
         textContent = fullText.trim();
         console.log(`Successfully extracted ${textContent.length} characters from PDF`);
+        
+        if (!textContent || textContent.length < 10) {
+          throw new Error('PDF appears to be empty or contains mostly images. Please try a text-based PDF or convert to TXT format.');
+        }
       } catch (e) {
         console.error('PDF text extraction failed:', e);
-        throw new Error('Failed to extract text from PDF. Please ensure the file is not corrupted or password-protected.');
+        const errorMsg = e instanceof Error ? e.message : 'Unknown PDF parsing error';
+        throw new Error(`PDF parsing failed: ${errorMsg}. Try converting to TXT format or ensure the PDF contains selectable text.`);
       }
-    } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-      // Extract text from DOCX using mammoth
+    } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.type === 'application/msword') {
+      // Extract text from DOCX/DOC using mammoth
       try {
-        console.log('Extracting text from DOCX...');
+        const fileType = file.type.includes('openxml') ? 'DOCX' : 'DOC';
+        console.log(`Extracting text from ${fileType}...`);
         const arrayBuffer = await file.arrayBuffer();
-        const result = await (mammoth as any).extractRawText({ arrayBuffer });
+        
+        const result = await mammoth.extractRawText({ arrayBuffer });
         textContent = (result.value || '').trim();
-        console.log(`Successfully extracted ${textContent.length} characters from DOCX`);
+        console.log(`Successfully extracted ${textContent.length} characters from ${fileType}`);
         
         if (result.messages && result.messages.length > 0) {
-          console.warn('DOCX extraction warnings:', result.messages);
+          console.warn(`${fileType} extraction warnings:`, result.messages);
+        }
+        
+        if (!textContent || textContent.length < 10) {
+          throw new Error(`${fileType} appears to be empty or unreadable. Please try a TXT format or ensure the document contains text.`);
         }
       } catch (e) {
-        console.error('DOCX text extraction failed:', e);
-        throw new Error('Failed to extract text from DOCX. Please ensure the file is not corrupted or password-protected.');
+        console.error('Document text extraction failed:', e);
+        const errorMsg = e instanceof Error ? e.message : 'Unknown document parsing error';
+        throw new Error(`Document parsing failed: ${errorMsg}. Try converting to TXT format.`);
       }
-    } else if (file.type === 'application/msword') {
-      // For older DOC files, attempt basic extraction (limited support)
-      try {
-        console.log('Attempting to extract text from DOC file...');
-        textContent = await file.text();
-        if (!textContent.trim()) {
-          throw new Error('No readable text found');
-        }
-      } catch (e) {
-        console.error('DOC text extraction failed:', e);
-        throw new Error('Failed to extract text from DOC file. Please convert to DOCX or PDF format for better compatibility.');
-      }
+    } else {
+      throw new Error(`Unsupported file type: ${file.type}. Please upload a PDF, DOCX, DOC, or TXT file.`);
     }
 
-    if (!textContent.trim()) {
-      throw new Error('No text content could be extracted from the file');
+    if (!textContent || textContent.trim().length === 0) {
+      throw new Error('Could not extract any text from the uploaded file. The file may be empty, corrupted, or image-based.');
     }
 
-    console.log(`Extracted text length: ${textContent.length} characters`);
+    if (textContent.length < 20) {
+      throw new Error('Extracted text is too short to be a meaningful resume. Please ensure your file contains proper resume content.');
+    }
+
+    console.log(`Total extracted text length: ${textContent.length} characters`);
 
     // Parse the resume content with OpenAI
     const parseResponse = await fetch('https://api.openai.com/v1/chat/completions', {
