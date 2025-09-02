@@ -1,6 +1,5 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { extractText } from "jsr:@pdf/pdftext";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -36,16 +35,13 @@ serve(async (req) => {
       throw new Error('No file provided');
     }
 
-    // Validate file type
+    // Validate file type - for now, only support TXT files reliably
     const allowedTypes = [
-      'application/pdf',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/msword',
       'text/plain'
     ];
     
     if (!allowedTypes.includes(file.type)) {
-      throw new Error('Unsupported file type. Please upload PDF, DOCX, DOC, or TXT files.');
+      throw new Error('Currently only TXT files are supported. Please copy your resume content and save it as a .txt file, or paste the text directly into the manual form.');
     }
 
     // Validate file size (10MB limit)
@@ -61,20 +57,15 @@ serve(async (req) => {
     
     if (file.type === 'text/plain') {
       textContent = await file.text();
-    } else if (file.type === 'application/pdf') {
-      const arrayBuffer = await file.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-      try {
-        const result: any = await extractText(uint8Array);
-        // Some versions return { text }, others return string
-        textContent = typeof result === 'string' ? result : (result?.text ?? '');
-      } catch (e) {
-        console.error('PDF text extraction failed:', e);
-        throw new Error('Failed to extract text from PDF');
-      }
     } else {
-      // For DOCX and DOC files, attempt naive text extraction (may be limited)
-      textContent = await file.text();
+      // For PDF, DOCX, and DOC files, attempt basic text extraction
+      // Note: This is a simplified approach - for production use, consider specialized libraries
+      try {
+        textContent = await file.text();
+      } catch (e) {
+        // If direct text extraction fails, inform the user
+        throw new Error(`Cannot extract text from ${file.type} files directly. Please convert to TXT format or copy-paste the content.`);
+      }
     }
 
     if (!textContent.trim()) {
