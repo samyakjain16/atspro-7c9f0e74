@@ -1,66 +1,85 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { extractText } from "https://esm.sh/unpdf@0.12.0";
+import * as pdfjsLib from "https://esm.sh/pdfjs-dist@4.6.82/legacy/build/pdf.js";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Enhanced PDF text extraction using unpdf library
+// Robust PDF text extraction using pdfjs-dist (serverless-friendly)
 async function extractPdfText(arrayBuffer: ArrayBuffer): Promise<string> {
   try {
-    console.log('Starting PDF text extraction with unpdf...');
-    
-    // Convert ArrayBuffer to Uint8Array for unpdf
-    const uint8Array = new Uint8Array(arrayBuffer);
-    
-    // Extract text using unpdf library
-    const result = await extractText(uint8Array);
-    
-    if (!result || !result.text) {
-      throw new Error('No text content found in PDF');
+    console.log('Starting PDF text extraction with pdfjs-dist...');
+
+    // Configure pdf.js for serverless usage (no separate worker file required)
+    try {
+      // @ts-ignore - types not available in this environment
+      (pdfjsLib as any).GlobalWorkerOptions.workerSrc =
+        'https://esm.sh/pdfjs-dist@4.6.82/legacy/build/pdf.worker.js';
+    } catch (e) {
+      console.warn('pdfjs GlobalWorkerOptions config failed (continuing):', e);
     }
-    
-    let extractedText = result.text;
-    
+
+    const uint8Array = new Uint8Array(arrayBuffer);
+
+    // Load PDF document
+    // @ts-ignore - pdfjs types not available in this environment
+    const loadingTask = (pdfjsLib as any).getDocument({
+      data: uint8Array,
+      // Serverless-safe flags
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      disableFontFace: true,
+    });
+
+    const pdf = await loadingTask.promise;
+    console.log(`PDF loaded with ${pdf.numPages} pages`);
+
+    let extractedText = '';
+
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const content = await page.getTextContent();
+      const pageText = (content.items as any[])
+        .map((item: any) => (item && typeof item.str === 'string' ? item.str : ''))
+        .join(' ');
+
+      extractedText += pageText + '\n';
+    }
+
     // Clean and normalize the extracted text
     extractedText = extractedText
-      // Replace multiple spaces/newlines with single spaces
       .replace(/\s+/g, ' ')
-      // Remove special characters but keep important punctuation
-      .replace(/[^\w\s@.-]/g, ' ')
-      // Remove excessive whitespace
+      .replace(/[^\w\s@.:,;\-()\/+]/g, ' ')
       .trim();
-    
+
     console.log(`Successfully extracted ${extractedText.length} characters from PDF`);
     console.log('First 200 characters:', extractedText.substring(0, 200));
-    
+
     // Validate extracted text quality
     if (extractedText.length < 50) {
-      throw new Error('Insufficient text extracted. PDF might be image-based, encrypted, or corrupted.');
+      throw new Error('Insufficient text extracted. The PDF might be image-based or corrupted.');
     }
-    
-    // Check for meaningful content (should contain some letters)
+
     const letterCount = (extractedText.match(/[a-zA-Z]/g) || []).length;
     if (letterCount < 20) {
-      throw new Error('PDF appears to contain mostly non-text content. OCR might be required.');
+      throw new Error('PDF appears to contain mostly non-text content. OCR may be required.');
     }
-    
+
     return extractedText;
   } catch (error) {
     console.error('PDF extraction error:', error);
-    
-    // Provide specific error messages for common issues
-    if (error.message.includes('password') || error.message.includes('encrypted')) {
+
+    const msg = (error as Error)?.message || String(error);
+    if (msg.includes('password') || msg.includes('encrypted')) {
       throw new Error('PDF is password-protected or encrypted. Please provide an unlocked PDF.');
     }
-    
-    if (error.message.includes('damaged') || error.message.includes('corrupt')) {
+    if (msg.includes('damaged') || msg.includes('corrupt')) {
       throw new Error('PDF file appears to be corrupted or damaged.');
     }
-    
-    throw new Error(`Failed to extract text from PDF: ${error.message}`);
+
+    throw new Error(`Failed to extract text from PDF: ${msg}`);
   }
 }
 
