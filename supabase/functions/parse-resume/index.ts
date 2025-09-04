@@ -1,79 +1,66 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { extractText } from "https://esm.sh/unpdf@0.12.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// PDF text extraction using pdf-parse equivalent
+// Enhanced PDF text extraction using unpdf library
 async function extractPdfText(arrayBuffer: ArrayBuffer): Promise<string> {
   try {
-    // Convert ArrayBuffer to Uint8Array
+    console.log('Starting PDF text extraction with unpdf...');
+    
+    // Convert ArrayBuffer to Uint8Array for unpdf
     const uint8Array = new Uint8Array(arrayBuffer);
     
-    // Simple PDF text extraction by looking for text objects
-    const pdfString = Array.from(uint8Array)
-      .map(byte => String.fromCharCode(byte))
-      .join('');
+    // Extract text using unpdf library
+    const result = await extractText(uint8Array);
     
-    let extractedText = '';
-    
-    // Method 1: Look for text between parentheses (most common in PDFs)
-    const parenthesesMatches = pdfString.match(/\([^)]*\)/g);
-    if (parenthesesMatches) {
-      const textFromParentheses = parenthesesMatches
-        .map(match => match.slice(1, -1)) // Remove parentheses
-        .filter(text => text.length > 0 && /[a-zA-Z]/.test(text))
-        .join(' ');
-      
-      if (textFromParentheses.length > extractedText.length) {
-        extractedText = textFromParentheses;
-      }
+    if (!result || !result.text) {
+      throw new Error('No text content found in PDF');
     }
     
-    // Method 2: Look for text streams with 'Tj' operators
-    const tjMatches = pdfString.match(/\([^)]*\)\s*Tj/g);
-    if (tjMatches) {
-      const textFromTj = tjMatches
-        .map(match => match.match(/\(([^)]*)\)/)?.[1] || '')
-        .filter(text => text.length > 0)
-        .join(' ');
-      
-      if (textFromTj.length > extractedText.length) {
-        extractedText = textFromTj;
-      }
-    }
+    let extractedText = result.text;
     
-    // Method 3: Look for readable ASCII sequences
-    if (extractedText.length < 100) {
-      const asciiText = Array.from(uint8Array)
-        .map(byte => (byte >= 32 && byte <= 126) ? String.fromCharCode(byte) : ' ')
-        .join('')
-        .replace(/\s+/g, ' ')
-        .split(' ')
-        .filter(word => word.length > 2 && /[a-zA-Z]/.test(word))
-        .join(' ');
-      
-      if (asciiText.length > extractedText.length) {
-        extractedText = asciiText;
-      }
-    }
-    
-    // Clean and format the extracted text
-    const cleanText = extractedText
-      .replace(/[^\x20-\x7E\n\r\t]/g, ' ') // Keep only printable ASCII
-      .replace(/\s+/g, ' ') // Normalize whitespace
+    // Clean and normalize the extracted text
+    extractedText = extractedText
+      // Replace multiple spaces/newlines with single spaces
+      .replace(/\s+/g, ' ')
+      // Remove special characters but keep important punctuation
+      .replace(/[^\w\s@.-]/g, ' ')
+      // Remove excessive whitespace
       .trim();
     
-    if (cleanText.length < 50) {
-      throw new Error('Could not extract sufficient text from PDF. The PDF might be image-based or corrupted.');
+    console.log(`Successfully extracted ${extractedText.length} characters from PDF`);
+    console.log('First 200 characters:', extractedText.substring(0, 200));
+    
+    // Validate extracted text quality
+    if (extractedText.length < 50) {
+      throw new Error('Insufficient text extracted. PDF might be image-based, encrypted, or corrupted.');
     }
     
-    return cleanText;
+    // Check for meaningful content (should contain some letters)
+    const letterCount = (extractedText.match(/[a-zA-Z]/g) || []).length;
+    if (letterCount < 20) {
+      throw new Error('PDF appears to contain mostly non-text content. OCR might be required.');
+    }
     
+    return extractedText;
   } catch (error) {
-    throw new Error(`PDF text extraction failed: ${error.message}`);
+    console.error('PDF extraction error:', error);
+    
+    // Provide specific error messages for common issues
+    if (error.message.includes('password') || error.message.includes('encrypted')) {
+      throw new Error('PDF is password-protected or encrypted. Please provide an unlocked PDF.');
+    }
+    
+    if (error.message.includes('damaged') || error.message.includes('corrupt')) {
+      throw new Error('PDF file appears to be corrupted or damaged.');
+    }
+    
+    throw new Error(`Failed to extract text from PDF: ${error.message}`);
   }
 }
 
