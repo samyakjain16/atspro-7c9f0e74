@@ -1,6 +1,10 @@
-// supabase/functions/parse-resume/index.ts
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { corsHeaders } from "../_shared/cors.ts"
+import "https://deno.land/x/xhr@0.1.0/mod.ts";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
 
 // PDF text extraction using pdf-parse equivalent
 async function extractPdfText(arrayBuffer: ArrayBuffer): Promise<string> {
@@ -151,7 +155,7 @@ ${resumeText}`;
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'gpt-4o-2024-08-06',
+        model: 'gpt-4.1-mini-2025-04-14',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
@@ -164,8 +168,7 @@ ${resumeText}`;
             strict: true
           }
         },
-        temperature: 0.1,
-        max_tokens: 1500
+        max_completion_tokens: 1500
       })
     });
 
