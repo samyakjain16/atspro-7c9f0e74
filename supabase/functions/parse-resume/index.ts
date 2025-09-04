@@ -1,6 +1,6 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import * as pdfjsLib from "https://esm.sh/pdfjs-dist@4.6.82/legacy/build/pdf.js";
+import * as pdfjsLib from "https://esm.sh/pdfjs-dist@4.6.82/build/pdf.mjs";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -16,7 +16,7 @@ async function extractPdfText(arrayBuffer: ArrayBuffer): Promise<string> {
     try {
       // @ts-ignore - types not available in this environment
       (pdfjsLib as any).GlobalWorkerOptions.workerSrc =
-        'https://esm.sh/pdfjs-dist@4.6.82/legacy/build/pdf.worker.js';
+        'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/build/pdf.worker.mjs';
     } catch (e) {
       console.warn('pdfjs GlobalWorkerOptions config failed (continuing):', e);
     }
